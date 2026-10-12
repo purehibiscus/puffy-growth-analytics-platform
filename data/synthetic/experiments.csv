@@ -1,0 +1,3 @@
+experiment_id,experiment_name,hypothesis,primary_kpi,alpha,power,start_date,end_date,status,owner
+EXP-024,Review Highlights Above CTA,Adding review highlights above the CTA will increase product-page-to-cart conversion.,product_page_to_cart,0.05,0.80,2026-07-01,2026-07-30,completed,CRO
+EXP-025,Simplified Mobile Checkout,Reducing checkout form complexity will increase mobile checkout completion.,checkout_to_purchase,0.05,0.80,2026-07-15,2026-08-15,running,CRO
