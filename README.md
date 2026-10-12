@@ -1,269 +1,289 @@
-\# Puffy Growth Analytics Platform
+# Puffy Growth Analytics Platform
 
+A portfolio project simulating an e-commerce analytics platform, combining Shopify data ingestion, inventory reconciliation, customer and order validation, revenue integrity checks, and growth analytics foundations.
 
-
-A portfolio project simulating an analytics platform for an e-commerce business, combining Shopify data ingestion, inventory reconciliation, analytics engineering, and growth measurement.
-
-
-
-\## Project Overview
-
-
+## Project Overview
 
 The project explores how an e-commerce analytics team can integrate operational data, validate data quality, reconcile inventory, and prepare reliable datasets for business reporting.
 
+The implemented workflows cover:
 
+- **Inventory reconciliation:** Compare synthetic product inventory against a Shopify development store, identify discrepancies, and support controlled inventory synchronization.
+- **Customer data validation:** Check customer identifiers, required fields, duplicates, date validity, numeric values, and marketing consent data types.
+- **Order data validation:** Validate order and order-item identifiers, customer and product relationships, timestamps, statuses, quantities, and financial fields.
+- **Revenue reconciliation:** Compare order-level item revenue against expected subtotals and validate net revenue using the financial rules defined by the synthetic dataset.
+- **Automated testing:** Use pytest to test reconciliation logic, validation rules, and edge cases.
 
-The current implemented workflow focuses on Shopify inventory reconciliation using a synthetic product catalogue as the authoritative source for the demo store's inventory quantities.
+The project uses synthetic e-commerce datasets for local analytics and a Shopify development store for the inventory synchronization workflow. It is a portfolio simulation, not a claim of production deployment.
 
+## Technology Stack
 
+- Python 3.12
+- Pandas
+- Shopify Admin GraphQL API
+- Requests and python-dotenv
+- Pytest
+- CSV-based data processing, reconciliation reports, and audit outputs
+- Git and GitHub
 
-\## Technology Stack
+Additional project areas include dbt, experimentation, dashboards, notebooks, and AI-related workflows. Their implementation status varies.
 
+## Implemented Workflows
 
+### 1. Shopify Inventory Reconciliation
 
-\- Python
+The inventory reconciliation workflow compares a synthetic product catalogue against inventory quantities in a Shopify development store. The source CSV is treated as authoritative for this demonstration.
 
-\- Pandas
+#### Verified results
 
-\- Shopify Admin GraphQL API
-
-\- Requests and python-dotenv
-
-\- Pytest
-
-\- CSV-based reconciliation and audit outputs
-
-
-
-Additional project areas include dbt, experimentation, dashboards, notebooks, and AI-related workflows; their implementation status varies.
-
-
-
-\## Current Inventory Reconciliation Results
-
-
-
-The inventory reconciliation workflow was tested against 100 synthetic products in a Shopify development store.
-
-
-
-| Metric | Verified result |
-
+| Metric | Result |
 |---|---:|
-
 | Products reconciled | 100 |
-
 | Products matching after synchronization | 100 |
-
 | Final match rate | 100% |
-
-| Quantity mismatches after synchronization | 0 |
-
-| Exceptions requiring review after synchronization | 0 |
-
-| Mismatches corrected during the synchronization run | 99 |
-
+| Remaining quantity mismatches | 0 |
+| Remaining exceptions | 0 |
+| Mismatches corrected during synchronization | 99 |
 | Absolute quantity variance before synchronization | 267,285 units |
-
 | Absolute quantity variance after synchronization | 0 units |
 
-| Automated tests passing | 11 |
+These results describe the inventory test run performed on October 12, 2026. The source CSV was authoritative for the demo; these results do not establish the accuracy of live physical stock.
 
+#### Workflow
 
-
-These results describe the test run performed on October 12, 2026. The source CSV was treated as authoritative for this demo; this does not establish that the source quantities represent live physical stock.
-
-
-
-\## Inventory Reconciliation Workflow
-
-
-
-1\. Load the source product inventory from CSV.
-
-2\. Retrieve Shopify products, variants, and inventory quantities.
-
-3\. Match records using SKU.
-
-4\. Detect quantity mismatches, missing SKUs, duplicate SKUs, untracked inventory, and missing inventory items.
-
-5\. Generate a reconciliation report.
-
-6\. Apply quantity updates only when explicitly requested with `--apply`.
-
-7\. Record attempted updates in an append-only CSV audit log.
-
-
+1. Load source product inventory from CSV.
+2. Retrieve Shopify products, variants, and inventory quantities.
+3. Match records using SKU.
+4. Detect quantity mismatches, missing or duplicate SKUs, untracked inventory, and missing inventory item IDs.
+5. Generate a reconciliation report.
+6. Apply quantity updates only when explicitly requested with `--apply`.
+7. Record attempted updates in an audit log.
 
 The default execution mode is a dry run and does not request inventory changes.
 
+### 2. Customer Data Validation
 
+The customer validation module checks the integrity and consistency of customer data before downstream analytics.
 
-\## Repository Structure
+Checks include:
 
+- Required columns and missing or blank values.
+- Missing or duplicate customer IDs and hashed customer identifiers.
+- Valid customer types, countries, and acquisition-source fields.
+- Parseable first-purchase dates.
+- Numeric, non-negative lifetime order counts and lifetime revenue.
+- Valid boolean marketing opt-in values.
 
+Missing loyalty tiers are permitted by the validation rules.
 
-```text
+#### Verified results
 
-.
+| Metric | Result |
+|---|---:|
+| Customer records validated | 25,000 |
+| Validation errors | 0 |
+| Automated tests | 9 |
 
-â”œâ”€â”€ data/
+### 3. Order and Order-Item Validation
 
-â”‚   â”œâ”€â”€ synthetic/       # Synthetic inputs for development
+The order validation module checks order records and their relationships with customers, products, and order items.
 
-â”‚   â””â”€â”€ processed/       # Generated outputs; excluded from Git
+Checks include:
 
-â”œâ”€â”€ src/
+- Required fields and missing or duplicate identifiers.
+- Order-to-customer relationships.
+- Item-to-order and item-to-product relationships.
+- Parseable order timestamps.
+- Valid order and fulfillment statuses.
+- Numeric and non-negative order financial fields.
+- Valid item quantities and monetary values.
 
-â”‚   â”œâ”€â”€ ingestion/       # Shopify ingestion and inventory sync
+Negative item gross margins are allowed because they can represent loss-making transactions.
 
-â”‚   â”œâ”€â”€ validation/      # Data validation components
+#### Verified results
 
-â”‚   â””â”€â”€ warehouse/       # Warehouse-related components
+| Metric | Result |
+|---|---:|
+| Order records validated | 30,000 |
+| Order-item records validated | 30,000 |
+| Invalid customer, order, or product references found in the initial dataset checks | 0 |
+| Validation errors | 0 |
+| Automated tests | 11 |
 
-â”œâ”€â”€ tests/               # Automated tests
+### 4. Revenue Reconciliation
 
-â”œâ”€â”€ dbt/                 # Analytics engineering work
+The revenue reconciliation module aggregates item-level revenue by order, joins it to order-level financial data, and flags differences outside a configurable tolerance.
 
-â”œâ”€â”€ dashboard/           # Dashboard work
+For the synthetic dataset, the defined financial rules are:
 
-â”œâ”€â”€ experimentation/     # Experimentation work
+**Expected item revenue**
 
-â”œâ”€â”€ notebooks/           # Analysis notebooks
+`Subtotal - Discount`
 
-â”œâ”€â”€ ai/                  # AI-related project work
+**Expected net revenue**
 
-â”œâ”€â”€ .env.example         # Environment variable template
+`Subtotal - Discount + Shipping + Tax - Refund Amount`
 
-â”œâ”€â”€ .gitignore
+These are the conventions defined by this project's synthetic dataset. Actual e-commerce accounting and revenue recognition can require additional rules depending on the business and its reporting requirements.
 
-â”œâ”€â”€ requirements.txt
+#### Verified results
 
-â””â”€â”€ README.md
+| Metric | Result |
+|---|---:|
+| Orders analyzed | 30,000 |
+| Orders without item records | 0 |
+| Item revenue mismatches | 0 |
+| Net revenue mismatches | 0 |
+| Net revenue match rate across each order status | 100% |
 
+The reconciliation covers paid, fulfilled, partially refunded, refunded, and cancelled orders.
+
+#### Generated reports
+
+The script `scripts/check_revenue_reconciliation.py` generates:
+
+- `data/processed/revenue_reconciliation.csv` — detailed order-level reconciliation, expected values, differences, and match flags.
+- `data/processed/revenue_reconciliation_summary.csv` — order counts, net revenue, refunds, and mismatch counts grouped by order status.
+
+The reports are generated locally and the `data/processed/` directory is excluded from Git.
+
+## Automated Testing
+
+The complete test suite covers inventory reconciliation, customer validation, order validation, and revenue reconciliation.
+
+| Test module | Tests |
+|---|---:|
+| Inventory reconciliation | 11 |
+| Customer validation | 9 |
+| Order validation | 11 |
+| Revenue reconciliation | 5 |
+| **Total** | **36** |
+
+**Latest verified result: 36 tests passed.**
+
+Run the full suite from the project root:
+
+```bash
+python -m pytest -q
 ```
 
+## Repository Structure
 
+```text
+.
+├── data/
+│   ├── synthetic/       # Synthetic development datasets
+│   └── processed/       # Generated outputs; excluded from Git
+├── src/
+│   ├── ingestion/       # Shopify ingestion and reconciliation
+│   │   ├── reconcile_revenue.py
+│   │   ├── validate_customers.py
+│   │   ├── validate_orders.py
+│   │   └── sync_shopify_inventory.py
+│   ├── validation/      # Additional validation components
+│   └── warehouse/      # Warehouse-related components
+├── scripts/
+│   └── check_revenue_reconciliation.py
+├── tests/
+│   ├── test_inventory_reconciliation.py
+│   ├── test_customer_validation.py
+│   ├── test_order_validation.py
+│   └── test_revenue_reconciliation.py
+├── dbt/                 # Analytics engineering work
+├── dashboard/           # Dashboard work
+├── experimentation/     # Experimentation work
+├── notebooks/           # Analysis notebooks
+├── ai/                  # AI-related project work
+├── .env.example         # Environment variable template
+├── .gitignore
+├── requirements.txt
+└── README.md
+```
 
-\## Setup
-
-
+## Setup
 
 Requires Python 3.12 or a compatible Python environment.
 
+1. Clone the repository:
 
+   ```bash
+   git clone https://github.com/purehibiscus/puffy-growth-analytics-platform.git
+   cd puffy-growth-analytics-platform
+   ```
 
-1\. Clone the repository.
+2. Create and activate a virtual environment if needed.
 
-2\. Create and activate a virtual environment.
+3. Install dependencies:
 
-3\. Install the dependencies:
+   ```bash
+   python -m pip install -r requirements.txt
+   ```
 
+4. Configure `.env` from `.env.example` only if running the Shopify integration. Set the required development-store credentials and API version.
 
+5. Ensure the development store, location, and required API permissions are configured before running inventory reconciliation.
 
-```bash
+**Security:** Never commit `.env`, access tokens, client secrets, or other credentials.
 
-python -m pip install -r requirements.txt
+## Run Data Validation and Revenue Reconciliation
 
-```
-
-
-
-4\. Copy `.env.example` to `.env` and configure your Shopify development-store credentials and API version.
-
-5\. Ensure the development store and location are configured for the inventory script before running it.
-
-
-
-Never commit `.env`, access tokens, client secrets, or other credentials.
-
-
-
-\## Run the Tests
-
-
+Run the full automated test suite:
 
 ```bash
-
-python -m pytest tests/test\_inventory\_reconciliation.py -v
-
+python -m pytest -q
 ```
 
-
-
-The current test suite covers matching quantities, mismatches, missing and duplicate SKUs, inventory tracking, missing inventory item IDs, invalid source quantities, and audit-log behavior.
-
-
-
-\## Run Inventory Reconciliation
-
-
-
-Preview the reconciliation without applying inventory updates:
-
-
+Generate the revenue reconciliation reports:
 
 ```bash
-
-python -m src.ingestion.sync\_shopify\_inventory
-
+python scripts/check_revenue_reconciliation.py
 ```
 
+The script reads the synthetic order and order-item CSV files and saves both reports under `data/processed/`.
 
+## Run Inventory Reconciliation
+
+Preview the inventory reconciliation without applying updates:
+
+```bash
+python -m src.ingestion.sync_shopify_inventory
+```
 
 Only after reviewing the report and confirming that the source quantities are appropriate should an authorized user explicitly run:
 
-
-
 ```bash
-
-python -m src.ingestion.sync\_shopify\_inventory --apply
-
+python -m src.ingestion.sync_shopify_inventory --apply
 ```
 
+**Caution:** The `--apply` option changes inventory in the configured Shopify store. Use a development store and review the report before applying changes.
 
-
-\*\*Caution:\*\* `--apply` changes inventory in the configured Shopify store. Use a development store and review the report before applying changes.
-
-
-
-\## Outputs and Auditability
-
-
+## Outputs and Auditability
 
 Generated reconciliation reports and operational exports are stored under `data/processed/`, which is excluded from Git.
 
-
-
 The inventory audit log records the run ID, timestamp, SKU, inventory item ID, original quantity, target quantity, quantity delta, and outcome for attempted updates.
 
+Revenue reconciliation reports preserve the order-level inputs, expected financial values, differences, and match flags for investigation.
 
+## Project Status
 
-\## Project Status
+**Implemented and tested:**
+- Shopify inventory reconciliation and controlled synchronization.
+- Customer data validation.
+- Order and order-item validation.
+- Order-level revenue reconciliation and summary reporting.
+- 36 automated tests passing.
 
+**Additional development areas:** dbt analytics models, dashboards, experimentation, notebooks, and AI-related workflows have varying levels of implementation and should not be interpreted as fully deployed production services.
 
+This project demonstrates data-quality engineering, financial consistency checks, operational reconciliation, and reproducible reporting using synthetic e-commerce data. It does not guarantee live inventory accuracy or establish that synthetic results generalize to a real business.
 
-The inventory reconciliation workflow and its 11 automated tests are implemented and passing. Other folders represent additional project work and should not be interpreted as fully implemented production services.
+## Future Improvements
 
-
-
-This is a portfolio simulation, not a claim of production deployment or a guarantee of live inventory accuracy.
-
-
-
-\## Future Improvements
-
-
-
-\- Add freshness and completeness monitoring.
-
-\- Expand automated data-quality tests.
-
-\- Build analytics models and documented business metrics.
-
-\- Develop growth, acquisition, and experimentation dashboards.
-
-\- Add CI checks and deployment documentation.
-
-\- Improve operational alerting and audit-log failure handling.
+- Add data freshness and completeness monitoring.
+- Introduce scheduled execution and CI-based test checks.
+- Expand analytics models and documented business metrics using dbt.
+- Develop growth, acquisition, retention, and experimentation dashboards.
+- Add operational alerting and improve audit-log failure handling.
+- Integrate approved customer and order APIs when the required permissions are available.
+- Document data lineage, metric definitions, and production deployment considerations.
