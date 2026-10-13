@@ -17,3 +17,18 @@ models:
       - name: line_revenue
         data_tests:
           - not_null
+
+
+  - name: fct_ga4_sessions
+    description: "One row per synthetic GA4 session."
+    columns:
+      - name: session_id
+        data_tests:
+          - unique
+          - not_null
+      - name: session_date
+        data_tests:
+          - not_null
+      - name: event_count
+        data_tests:
+          - not_null

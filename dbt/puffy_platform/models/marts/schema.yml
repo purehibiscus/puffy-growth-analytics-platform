@@ -51,3 +51,33 @@ models:
       - name: eligible_net_revenue
         data_tests:
           - not_null
+
+  - name: mart_ga4_funnel_daily
+    description: "Daily session-based e-commerce funnel metrics from GA4 events."
+    columns:
+      - name: event_date
+        data_tests:
+          - unique
+          - not_null
+      - name: total_sessions
+        data_tests:
+          - not_null
+      - name: purchase_sessions
+        data_tests:
+          - not_null
+
+  - name: mart_ga4_acquisition_daily
+    description: "Daily GA4 session and funnel metrics by acquisition dimensions."
+    columns:
+      - name: event_date
+        data_tests:
+          - not_null
+      - name: traffic_source
+        data_tests:
+          - not_null
+      - name: traffic_medium
+        data_tests:
+          - not_null
+      - name: sessions
+        data_tests:
+          - not_null

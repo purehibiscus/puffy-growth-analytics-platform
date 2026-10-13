@@ -76,3 +76,26 @@ models:
       - name: quantity
         data_tests:
           - not_null
+
+  - name: stg_ga4_events
+    description: "Cleaned synthetic GA4 events, normalised for growth analytics."
+    columns:
+      - name: event_id
+        data_tests:
+          - unique
+          - not_null
+      - name: event_timestamp
+        data_tests:
+          - not_null
+      - name: event_date
+        data_tests:
+          - not_null
+      - name: session_id
+        data_tests:
+          - not_null
+      - name: event_name
+        data_tests:
+          - not_null
+      - name: user_id
+        data_tests:
+          - not_null

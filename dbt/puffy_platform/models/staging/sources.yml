@@ -1,3 +1,4 @@
+
 version: 2
 
 sources:
@@ -7,9 +8,15 @@ sources:
     tables:
       - name: products
         identifier: raw_products
+
       - name: customers
         identifier: raw_customers
+
       - name: shopify_orders
         identifier: raw_shopify_orders
+
       - name: shopify_order_items
         identifier: raw_shopify_order_items
+
+      - name: ga4_events
+        identifier: raw_ga4_events
