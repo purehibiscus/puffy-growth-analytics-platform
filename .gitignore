@@ -29,3 +29,7 @@ htmlcov/
 
 # Generated data and operational exports
 data/processed/
+
+# Runtime logs
+logs/
+dbt/logs/

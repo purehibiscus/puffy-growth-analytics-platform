@@ -1,0 +1,19 @@
+
+version: 2
+
+models:
+  - name: int_order_items_enriched
+    columns:
+      - name: order_item_id
+        data_tests:
+          - unique
+          - not_null
+      - name: order_id
+        data_tests:
+          - not_null
+      - name: product_id
+        data_tests:
+          - not_null
+      - name: line_revenue
+        data_tests:
+          - not_null

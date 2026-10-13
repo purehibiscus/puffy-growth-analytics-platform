@@ -1,0 +1,53 @@
+version: 2
+
+models:
+  - name: fct_orders
+    description: "Order-level revenue and customer acquisition fact table."
+    columns:
+      - name: order_id
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_id
+        data_tests:
+          - not_null
+      - name: order_date
+        data_tests:
+          - not_null
+      - name: net_revenue
+        data_tests:
+          - not_null
+
+  - name: dim_customers
+    description: "Customer attributes and order-derived metrics."
+    columns:
+      - name: customer_id
+        data_tests:
+          - unique
+          - not_null
+      - name: customer_email_hash
+        data_tests:
+          - unique
+          - not_null
+
+  - name: mart_growth_performance_daily
+    description: >
+      Daily growth and revenue performance by acquisition, geography,
+      and device. Eligible net revenue excludes cancelled and fully
+      refunded orders and includes partially refunded orders.
+    columns:
+      - name: order_date
+        data_tests:
+          - not_null
+      - name: currency
+        data_tests:
+          - not_null
+      - name: total_orders
+        data_tests:
+          - not_null
+      - name: recorded_net_revenue
+        data_tests:
+          - not_null
+      - name: eligible_net_revenue
+        data_tests:
+          - not_null
