@@ -150,3 +150,102 @@ def test_audit_log_appends_records(tmp_path, monkeypatch):
     assert len(log) == 2
     assert list(log["run_id"]) == ["run-1", "run-2"]
     assert list(log["outcome"]) == ["UPDATED", "UPDATE_FAILED"]
+
+
+def test_missing_inventory_level_at_location():
+    result = build_reconciliation(
+        source_data(),
+        shopify_data(quantity=None),
+    )
+    assert result.loc[0, "status"] == "NO_INVENTORY_LEVEL_AT_LOCATION"
+
+
+def test_set_inventory_handles_shopify_rejection(monkeypatch):
+    monkeypatch.setattr(
+        inventory_sync,
+        "graphql_request",
+        lambda access_token, query: {
+            "data": {
+                "inventorySetQuantities": {
+                    "userErrors": [{
+                        "field": ["quantities"],
+                        "message": "The quantity changed before the update.",
+                    }],
+                    "inventoryAdjustmentGroup": None,
+                }
+            }
+        },
+    )
+
+    row = pd.Series({
+        "sku": "TEST-001",
+        "shopify_available_qty": 5,
+        "source_inventory_qty": 12,
+        "inventory_item_id": "gid://shopify/InventoryItem/1",
+    })
+
+    result = inventory_sync.set_inventory("fake-token", row, "test-run")
+
+    assert result.startswith("UPDATE_REJECTED:")
+
+
+def test_set_inventory_handles_missing_mutation_result(monkeypatch):
+    monkeypatch.setattr(
+        inventory_sync,
+        "graphql_request",
+        lambda access_token, query: {"data": {}},
+    )
+
+    row = pd.Series({
+        "sku": "TEST-001",
+        "shopify_available_qty": 5,
+        "source_inventory_qty": 12,
+        "inventory_item_id": "gid://shopify/InventoryItem/1",
+    })
+
+    result = inventory_sync.set_inventory("fake-token", row, "test-run")
+
+    assert result == "UPDATE_FAILED: Missing mutation result."
+
+
+def test_set_inventory_uses_compare_and_set_quantities(monkeypatch):
+    captured = {}
+
+    def fake_graphql_request(access_token, query):
+        captured["query"] = query
+        return {
+            "data": {
+                "inventorySetQuantities": {
+                    "userErrors": [],
+                    "inventoryAdjustmentGroup": {
+                        "createdAt": "2026-10-15T00:00:00Z",
+                        "reason": "correction",
+                        "changes": [{
+                            "name": "available",
+                            "delta": 7,
+                            "quantityAfterChange": 12,
+                        }],
+                    },
+                }
+            }
+        }
+
+    monkeypatch.setattr(
+        inventory_sync,
+        "graphql_request",
+        fake_graphql_request,
+    )
+
+    row = pd.Series({
+        "sku": "TEST-001",
+        "shopify_available_qty": 5,
+        "source_inventory_qty": 12,
+        "inventory_item_id": "gid://shopify/InventoryItem/1",
+    })
+
+    result = inventory_sync.set_inventory("fake-token", row, "test-run")
+
+    assert result == "UPDATED"
+    assert "changeFromQuantity: 5" in captured["query"]
+    assert "quantity: 12" in captured["query"]
+    assert "gid://shopify/InventoryItem/1" in captured["query"]
