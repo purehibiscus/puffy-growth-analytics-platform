@@ -37,3 +37,6 @@ dbt/logs/
 # Generated GA4 datasets
 data/synthetic/ga4_events_generated.csv
 data/synthetic/ga4_events_generated_*.csv
+
+# Corrected GA4 candidate: generated locally, not committed
+data/synthetic/ga4_events_corrected_candidate.csv
