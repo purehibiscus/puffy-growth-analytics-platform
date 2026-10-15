@@ -577,3 +577,76 @@ This is a representative structure; additional files and project areas may exist
 ---
 
 This project demonstrates practical analytics engineering, data validation, operational reconciliation, SQL modeling, and business-focused growth reporting through a reproducible e-commerce simulation.
+
+
+## GA4 Growth Analytics and Sequential Funnel
+
+This project includes a GA4-style event analytics workflow for examining e-commerce customer journeys, validating event data, and distinguishing event presence from ordered funnel progression.
+
+### Dataset and data quality
+
+The original synthetic event dataset contains 520,000 events, 170,061 session IDs, and 25,000 user IDs. Validation identified significant identity and journey-consistency issues: 141,099 session IDs were associated with multiple users, and session durations were frequently much longer than a typical browsing session.
+
+A separate corrected candidate dataset was generated locally to test a more coherent event model.
+
+| Metric | Original dataset | Corrected candidate |
+|---|---:|---:|
+| Events | 520,000 | 520,000 |
+| Sessions | 170,061 | 123,143 |
+| Unique event IDs | 520,000 | 520,000 |
+| Session IDs associated with multiple users | 141,099 | 0 |
+| Sessions with timestamp violations | Present | 0 |
+| Median session duration | Approximately 27 days | 4.43 minutes |
+| 95th-percentile session duration | Approximately 53 days | 10.93 minutes |
+
+The corrected candidate passed local checks for unique event IDs, non-null required fields, consistent session-to-user identity, chronological event timestamps, and ordered purchase prerequisites.
+
+**Data handling:** `data/synthetic/ga4_events_corrected_candidate.csv` is generated locally and excluded from Git. It has not been loaded into BigQuery. The original dataset remains unchanged.
+
+### Sequential funnel model
+
+The dbt model `fct_ga4_sequential_funnel_sessions` creates one record per session and identifies whether the following stages occur in order:
+
+1. `session_start`
+2. `view_item`
+3. `add_to_cart`
+4. `begin_checkout`
+5. `add_payment_info`
+6. `purchase`
+
+The model also exposes event counts, selected stage timestamps, ordered-stage flags, and anomaly flags for events that lack the expected preceding stage.
+
+The existing stage-presence funnel and the sequential funnel have different meanings:
+
+- **Stage-presence funnel:** counts sessions containing each event, regardless of event order.
+- **Sequential funnel:** counts sessions that reach each stage after the preceding required stage.
+
+These metrics should not be interpreted interchangeably. A stage-presence count can exceed the preceding stage's count and produce a conversion rate above 100%.
+
+**Source limitation:** the deployed sequential-funnel model currently references the existing `stg_ga4_events` dbt model. The corrected candidate CSV has been validated locally but is not yet the source for that BigQuery model.
+
+### Reproducibility and validation
+
+Compare the original, corrected candidate, and small generated test datasets:
+
+```bash
+python scripts/compare_ga4_datasets.py
+```
+
+Validate the corrected candidate:
+
+```bash
+python scripts/validate_ga4_candidate.py
+```
+
+Run the four sequential-funnel dbt tests from the dbt project directory:
+
+```bash
+dbt test --select assert_sequential_funnel_unique_sessions assert_sequential_funnel_non_null_sessions assert_sequential_funnel_stage_order assert_sequential_funnel_timestamps
+```
+
+The four tests validate session uniqueness, non-null session IDs, stage dependencies, and timestamp ordering. These checks establish structural consistency; they do not prove that synthetic conversion rates reflect real customer behavior.
+
+### Interpretation and limitations
+
+The corrected dataset is synthetic and was generated using predefined event probabilities. Its funnel conversion rates are demonstration metrics, not estimates of actual Puffy customer performance. The candidate should remain separate from the original dataset until its source configuration, dbt models, and downstream reporting have been explicitly reviewed and validated.
