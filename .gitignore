@@ -33,3 +33,7 @@ data/processed/
 # Runtime logs
 logs/
 dbt/logs/
+
+# Generated GA4 datasets
+data/synthetic/ga4_events_generated.csv
+data/synthetic/ga4_events_generated_*.csv
