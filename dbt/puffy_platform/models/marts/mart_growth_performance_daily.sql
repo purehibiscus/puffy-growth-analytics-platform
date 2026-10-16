@@ -17,6 +17,9 @@ daily_growth as (
         device_category,
 
         count(*) as total_orders,
+        countif(
+            order_status not in ('cancelled', 'refunded')
+        ) as eligible_orders,
 
         countif(order_status = 'cancelled') as cancelled_orders,
         countif(order_status = 'refunded') as refunded_orders,
@@ -59,7 +62,7 @@ select
     *,
     safe_divide(
         eligible_net_revenue,
-        total_orders
+        eligible_orders
     ) as eligible_revenue_per_order,
 
     safe_divide(

@@ -1,3 +1,4 @@
+
 version: 2
 
 models:
@@ -51,6 +52,12 @@ models:
       - name: eligible_net_revenue
         data_tests:
           - not_null
+      - name: eligible_orders
+        description: "Orders included in eligible net revenue under the current status-based rule."
+        data_tests:
+          - not_null
+      - name: eligible_revenue_per_order
+        description: "Eligible net revenue divided by eligible orders; NULL when eligible_orders is zero."
 
   - name: mart_ga4_funnel_daily
     description: "Daily session-based e-commerce funnel metrics from GA4 events."
