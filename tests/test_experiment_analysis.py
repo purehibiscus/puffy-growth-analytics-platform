@@ -118,18 +118,41 @@ def test_variant_metrics_are_calculated_correctly():
     assert treatment["refund_guardrail_rate"] == 0.0
 
 
-def test_clean_assignments_receive_finite_confidence_interval():
+def test_unvalidated_primary_kpi_suppresses_confidence_interval():
     assignments = make_assignments().iloc[:3].copy()
 
     result = analyze_experiment(make_experiment(), assignments)
 
-    assert result["conversion_ci95_low"].notna().all()
-    assert result["conversion_ci95_high"].notna().all()
+    assert result["conversion_ci95_low"].isna().all()
+    assert result["conversion_ci95_high"].isna().all()
+    assert result["primary_kpi_validation"].str.contains(
+        "UNVALIDATED"
+    ).all()
     assert math.isclose(
         result["converted_flag_absolute_difference"].iloc[0],
         0.5,
     )
 
+@pytest.mark.parametrize(
+    ("primary_kpi", "expected_message"),
+    [
+        ("product_page_to_cart", "product-page views and add-to-cart"),
+        ("checkout_to_purchase", "checkout-start denominator"),
+    ],
+)
+def test_registered_kpis_are_explicitly_marked_unvalidated(
+    primary_kpi, expected_message
+):
+    experiment = make_experiment()
+    experiment["primary_kpi"] = primary_kpi
+
+    result = analyze_experiment(experiment, make_assignments().iloc[:3].copy())
+
+    assert result["primary_kpi_validation"].str.contains(
+        expected_message, regex=False
+    ).all()
+    assert result["conversion_ci95_low"].isna().all()
+    assert result["conversion_ci95_high"].isna().all()
 
 def test_repeated_users_suppress_confidence_interval():
     assignments = make_assignments().iloc[:3].copy()

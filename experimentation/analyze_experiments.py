@@ -257,6 +257,29 @@ def analyze_experiment(experiment, assignments):
     summary["conversion_ci95_high"] = ci_high
     summary["experiment_status"] = experiment["status"]
     summary["primary_kpi"] = experiment["primary_kpi"]
+
+    kpi = str(experiment["primary_kpi"]).strip().lower()
+
+    if kpi == "product_page_to_cart":
+        kpi_validation = (
+            "UNVALIDATED: product-page views and add-to-cart events "
+            "are not separately available"
+        )
+    elif kpi == "checkout_to_purchase":
+        kpi_validation = (
+            "UNVALIDATED: checkout-start denominator and purchase-event "
+            "mapping are not established"
+        )
+    else:
+        kpi_validation = (
+            "UNVALIDATED: no documented mapping from registered KPI "
+            "to a source outcome"
+        )
+
+
+    summary["primary_kpi_validation"] = kpi_validation
+    summary["conversion_ci95_low"] = float("nan")
+    summary["conversion_ci95_high"] = float("nan")
     summary["assignment_integrity_warning"] = "; ".join(issues) if issues else "None detected"
 
     if cross_variant_users or duplicate_users:
