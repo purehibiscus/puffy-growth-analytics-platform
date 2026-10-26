@@ -39,6 +39,25 @@ def in_window(series, start, end):
     """Use an inclusive calendar end date, represented as an exclusive bound."""
     return (series >= start) & (series < end + pd.Timedelta(days=1))
 
+def reconcile_denominator(eligible_assignments, denominator_users):
+    """Reconcile eligible assigned users against denominator-qualified users."""
+    assigned_users = set(eligible_assignments["user_id"].dropna())
+    denominator_users = set(denominator_users)
+
+    qualified_users = assigned_users.intersection(denominator_users)
+    missing_denominator_users = assigned_users.difference(qualified_users)
+
+    return {
+        "eligible_assigned_users": len(assigned_users),
+        "denominator_users": len(qualified_users),
+        "eligible_users_without_denominator_event": len(
+            missing_denominator_users
+        ),
+        "denominator_reconciles": (
+            len(assigned_users)
+            == len(qualified_users) + len(missing_denominator_users)
+        ),
+    }
 
 def first_event_per_user(events, event_name):
     selected = events.loc[events["event_name"].eq(event_name)].copy()
@@ -316,29 +335,6 @@ def main():
             alpha=0.001,
         )
 
-        integrity_rows.append({
-            "experiment_id": exp_id,
-            "assignment_rows": len(exp_assignments),
-            "eligible_assignments_in_window": len(eligible_assignments),
-            "event_rows": len(exp_events),
-            "unmatched_events": unmatched_events,
-            "variant_mismatches": event_variant_mismatch,
-            "events_before_assignment": event_before_assignment,
-            "events_outside_window": event_outside_window,
-            "device_mismatches": event_device_mismatch,
-            "duplicate_assignment_ids": int(
-                exp_assignments["assignment_id"].duplicated().sum()
-            ),
-            "duplicate_event_ids": int(exp_events["event_id"].duplicated().sum()),
-            "srm_control_assigned": srm["control_assigned"],
-            "srm_treatment_assigned": srm["treatment_assigned"],
-            "srm_expected_control_share": srm["expected_control_share"],
-            "srm_chi_square": srm["srm_chi_square"],
-            "srm_p_value": srm["srm_p_value"],
-            "srm_detected": srm["srm_detected"],
-            "srm_alpha": srm["srm_alpha"],
-        })
-
         # Exclude invalid, unmatched, pre-assignment, and out-of-window events
         # from KPI calculations. Keep original source files unchanged.
         valid_events = comparable_events.loc[
@@ -371,6 +367,36 @@ def main():
         denominator_event, numerator_event, denominator_users, numerator_users = (
             calculate_kpi(exp_id, eligible_assignments, valid_events)
         )
+        reconciliation = reconcile_denominator(
+            eligible_assignments, denominator_users
+        )
+        integrity_rows.append({
+            "experiment_id": exp_id,
+            "assignment_rows": len(exp_assignments),
+            "eligible_assignments_in_window": len(eligible_assignments),
+            "eligible_assigned_users_distinct": reconciliation["eligible_assigned_users"],
+            "denominator_users_distinct": reconciliation["denominator_users"],
+            "eligible_users_without_denominator_event": reconciliation["eligible_users_without_denominator_event"],
+            "denominator_reconciles": reconciliation["denominator_reconciles"],
+            "event_rows": len(exp_events),
+            "unmatched_events": unmatched_events,
+            "variant_mismatches": event_variant_mismatch,
+            "events_before_assignment": event_before_assignment,
+            "events_outside_window": event_outside_window,
+            "device_mismatches": event_device_mismatch,
+            "duplicate_assignment_ids": int(
+                exp_assignments["assignment_id"].duplicated().sum()
+            ),
+            "duplicate_event_ids": int(exp_events["event_id"].duplicated().sum()),
+            "srm_control_assigned": srm["control_assigned"],
+            "srm_treatment_assigned": srm["treatment_assigned"],
+            "srm_expected_control_share": srm["expected_control_share"],
+            "srm_chi_square": srm["srm_chi_square"],
+            "srm_p_value": srm["srm_p_value"],
+            "srm_detected": srm["srm_detected"],
+            "srm_alpha": srm["srm_alpha"],
+        })
+
 
         for variant in ["control", "treatment"]:
             variant_assignments = eligible_assignments.loc[
@@ -391,6 +417,14 @@ def main():
                 "denominator_event": denominator_event,
                 "numerator_event": numerator_event,
                 "eligible_assigned_users": len(variant_users),
+                "eligible_users_without_denominator_event": len(
+                    variant_users.difference(denominator_users)
+                ),
+                "denominator_reconciles": (
+                    len(variant_users)
+                    == len(variant_users.intersection(denominator_users))
+                    + len(variant_users.difference(denominator_users))
+                ),
                 "denominator_users": denom,
                 "numerator_users": numer,
                 "conversion_rate_pct": rate * 100 if denom else np.nan,

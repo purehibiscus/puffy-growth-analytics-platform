@@ -8,8 +8,8 @@ from experimentation.analyze_event_experiments import (
     compare_variants,
     in_window,
     check_sample_ratio_mismatch,
+    reconcile_denominator,
 )
-
 
 def make_event(
     event_id,
@@ -222,3 +222,31 @@ def test_srm_flags_materially_imbalanced_assignment():
 
     assert result["srm_p_value"] < 0.001
     assert result["srm_detected"] is True
+
+def test_reconcile_denominator_counts_qualified_and_missing_users():
+    assignments = pd.DataFrame({
+        "user_id": ["u1", "u2", "u3", "u3"],
+    })
+
+    result = reconcile_denominator(
+        assignments,
+        {"u1", "u3", "outsider"},
+    )
+
+    assert result["eligible_assigned_users"] == 3
+    assert result["denominator_users"] == 2
+    assert result["eligible_users_without_denominator_event"] == 1
+    assert result["denominator_reconciles"] is True
+
+
+def test_reconcile_denominator_handles_no_qualifying_users():
+    assignments = pd.DataFrame({
+        "user_id": ["u1", "u2"],
+    })
+
+    result = reconcile_denominator(assignments, set())
+
+    assert result["eligible_assigned_users"] == 2
+    assert result["denominator_users"] == 0
+    assert result["eligible_users_without_denominator_event"] == 2
+    assert result["denominator_reconciles"] is True
