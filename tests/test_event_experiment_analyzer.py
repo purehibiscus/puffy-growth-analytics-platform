@@ -9,6 +9,9 @@ from experimentation.analyze_event_experiments import (
     in_window,
     check_sample_ratio_mismatch,
     reconcile_denominator,
+    deduplicate_by_id,
+    exclude_conflicted_assignments,
+    exclude_device_mismatches,
 )
 
 def make_event(
@@ -250,3 +253,265 @@ def test_reconcile_denominator_handles_no_qualifying_users():
     assert result["denominator_users"] == 0
     assert result["eligible_users_without_denominator_event"] == 2
     assert result["denominator_reconciles"] is True
+
+def test_deduplicate_by_id_keeps_one_exact_duplicate():
+    df = pd.DataFrame([
+        {"event_id": "e1", "user_id": "user-1", "event_name": "view_item"},
+        {"event_id": "e1", "user_id": "user-1", "event_name": "view_item"},
+        {"event_id": "e2", "user_id": "u2", "event_name": "purchase"},
+    ])
+
+    cleaned, exact_duplicates, conflicting_duplicates, missing_ids = (
+        deduplicate_by_id(df, "event_id")
+    )
+
+    assert missing_ids == 0
+    assert len(cleaned) == 2
+    assert exact_duplicates == 1
+    assert conflicting_duplicates == 0
+
+
+def test_deduplicate_by_id_excludes_conflicting_duplicate_ids():
+    df = pd.DataFrame([
+        {"event_id": "e1", "user_id": "user-1", "event_name": "view_item"},
+        {"event_id": "e1", "user_id": "u2", "event_name": "purchase"},
+        {"event_id": "e2", "user_id": "u3", "event_name": "view_item"},
+    ])
+
+    cleaned, exact_duplicates, conflicting_duplicates, missing_ids = (
+        deduplicate_by_id(df, "event_id")
+    )
+
+    assert cleaned["event_id"].tolist() == ["e2"]
+    assert exact_duplicates == 0
+    assert conflicting_duplicates == 1
+
+
+def exclude_conflicted_assignments(assignments):
+    """
+    Exclude assignments with missing identifiers and users with
+    multiple distinct assignments in the same experiment.
+
+    Returns:
+        cleaned_assignments,
+        conflicted_user_count,
+        missing_identifier_count
+    """
+    assignments = assignments.copy()
+
+    required_columns = [
+        "experiment_id",
+        "user_id",
+        "assignment_id",
+    ]
+
+    missing_identifier_mask = assignments[
+        required_columns
+    ].isna().any(axis=1)
+
+    missing_identifier_count = int(
+        missing_identifier_mask.sum()
+    )
+
+    identified = assignments.loc[
+        ~missing_identifier_mask
+    ].copy()
+
+    assignment_counts = (
+        identified.groupby(
+            ["experiment_id", "user_id"]
+        )["assignment_id"]
+        .nunique()
+    )
+
+    conflicted = assignment_counts[assignment_counts > 1]
+    conflicted_users = set(conflicted.index.tolist())
+
+    user_keys = list(
+        zip(
+            identified["experiment_id"],
+            identified["user_id"],
+        )
+    )
+
+    keep_mask = pd.Series(
+        [key not in conflicted_users for key in user_keys],
+        index=identified.index,
+    )
+
+    cleaned = identified.loc[keep_mask].copy()
+
+    return (
+        cleaned,
+        len(conflicted_users),
+        missing_identifier_count,
+    )
+
+def test_exclude_device_mismatches_keeps_valid_events():
+    assignments = pd.DataFrame([
+        {
+            "experiment_id": "EXP-024",
+            "user_id": "user-1",
+            "device_category": "desktop",
+        }
+    ])
+
+    events = pd.DataFrame([
+        make_event(
+            "e1", "view_item", "2026-07-02T10:00:00",
+            device="desktop",
+        ),
+        make_event(
+            "e2", "add_to_cart", "2026-07-02T10:01:00",
+            device="mobile",
+        ),
+        make_event(
+            "e3", "purchase", "2026-07-02T10:02:00",
+            device="desktop",
+        ),
+    ])
+
+    cleaned, mismatch_count, missing_device_count = (
+        exclude_device_mismatches(events, assignments)
+    )
+
+    assert cleaned["event_id"].tolist() == ["e1", "e3"]
+    assert mismatch_count == 1
+    assert missing_device_count == 0
+
+def test_deduplicate_by_id_excludes_and_counts_missing_ids():
+    df = pd.DataFrame([
+        {"event_id": "e1", "user_id": "u1", "event_name": "view_item"},
+        {"event_id": None, "user_id": "u2", "event_name": "purchase"},
+        {"event_id": "e2", "user_id": "u3", "event_name": "purchase"},
+    ])
+
+    (
+        cleaned,
+        exact_duplicates,
+        conflicting_duplicates,
+        missing_ids,
+    ) = deduplicate_by_id(df, "event_id")
+
+    assert cleaned["event_id"].tolist() == ["e1", "e2"]
+    assert exact_duplicates == 0
+    assert conflicting_duplicates == 0
+    assert missing_ids == 1
+
+def test_deduplicate_assignments_excludes_conflicting_assignment_ids():
+    assignments = pd.DataFrame([
+        {
+            "assignment_id": "a1",
+            "experiment_id": "EXP-024",
+            "user_id": "u1",
+            "variant": "control",
+        },
+        {
+            "assignment_id": "a1",
+            "experiment_id": "EXP-024",
+            "user_id": "u1",
+            "variant": "treatment",
+        },
+        {
+            "assignment_id": "a2",
+            "experiment_id": "EXP-024",
+            "user_id": "u2",
+            "variant": "control",
+        },
+    ])
+
+    (
+        cleaned,
+        exact_duplicates,
+        conflicting_duplicates,
+        missing_ids,
+    ) = deduplicate_by_id(assignments, "assignment_id")
+
+    assert cleaned["assignment_id"].tolist() == ["a2"]
+    assert exact_duplicates == 0
+    assert conflicting_duplicates == 1
+    assert missing_ids == 0
+
+def test_deduplicate_by_id_conflicts_are_independent_of_row_order():
+    df = pd.DataFrame([
+        {"event_id": "e1", "user_id": "u1", "event_name": "view_item"},
+        {"event_id": "e1", "user_id": "u2", "event_name": "purchase"},
+        {"event_id": "e2", "user_id": "u3", "event_name": "purchase"},
+    ])
+
+    forward = deduplicate_by_id(df, "event_id")
+    reversed_result = deduplicate_by_id(
+        df.iloc[::-1].reset_index(drop=True),
+        "event_id",
+    )
+
+    assert forward[0]["event_id"].tolist() == ["e2"]
+    assert reversed_result[0]["event_id"].tolist() == ["e2"]
+    assert forward[2:] == reversed_result[2:]
+
+def test_exclude_device_mismatches_preserves_unmatched_events():
+    assignments = pd.DataFrame([
+        {
+            "experiment_id": "EXP-024",
+            "user_id": "user-1",
+            "device_category": "desktop",
+        }
+    ])
+
+    events = pd.DataFrame([
+        make_event(
+            "e1", "view_item", "2026-07-02T10:00:00",
+            device="desktop",
+        ),
+        make_event(
+            "e2", "purchase", "2026-07-02T10:01:00",
+            device="mobile",
+            user_id="unmatched-user",
+        ),
+    ])
+
+    cleaned, mismatch_count, missing_device_count = (
+        exclude_device_mismatches(events, assignments)
+    )
+
+    assert cleaned["event_id"].tolist() == ["e1", "e2"]
+    assert mismatch_count == 0
+    assert missing_device_count == 0
+
+def test_exclude_conflicted_assignments_excludes_missing_identifiers():
+    assignments = pd.DataFrame([
+        {
+            "experiment_id": "EXP-024",
+            "user_id": "u1",
+            "assignment_id": "a1",
+            "variant": "control",
+        },
+        {
+            "experiment_id": "EXP-024",
+            "user_id": None,
+            "assignment_id": "a2",
+            "variant": "control",
+        },
+        {
+            "experiment_id": "EXP-024",
+            "user_id": "u3",
+            "assignment_id": None,
+            "variant": "treatment",
+        },
+        {
+            "experiment_id": None,
+            "user_id": "u4",
+            "assignment_id": "a4",
+            "variant": "control",
+        },
+    ])
+
+    (
+        cleaned,
+        conflicted_users,
+        missing_identifier_count,
+    ) = exclude_conflicted_assignments(assignments)
+
+    assert cleaned["assignment_id"].tolist() == ["a1"]
+    assert conflicted_users == 0
+    assert missing_identifier_count == 3

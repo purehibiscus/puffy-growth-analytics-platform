@@ -39,6 +39,171 @@ def in_window(series, start, end):
     """Use an inclusive calendar end date, represented as an exclusive bound."""
     return (series >= start) & (series < end + pd.Timedelta(days=1))
 
+def deduplicate_by_id(df, id_column):
+    """
+    Remove exact duplicate records and exclude conflicting duplicate IDs.
+
+    Records with missing IDs are excluded and counted separately.
+
+    Returns:
+        cleaned_df,
+        exact_duplicate_count,
+        conflicting_duplicate_count,
+        missing_id_count
+    """
+    df = df.copy()
+
+    missing_id = df[id_column].isna()
+    missing_id_count = int(missing_id.sum())
+    identified = df.loc[~missing_id].copy()
+
+    exact_duplicate_count = 0
+    conflicting_duplicate_count = 0
+
+    keep_indices = []
+
+    for _, group in identified.groupby(id_column, sort=False):
+        if len(group) == 1:
+            keep_indices.extend(group.index.tolist())
+            continue
+
+        if len(group.drop_duplicates()) == 1:
+            keep_indices.append(group.index[0])
+            exact_duplicate_count += len(group) - 1
+        else:
+            conflicting_duplicate_count += 1
+
+    cleaned = identified.loc[keep_indices].copy()
+
+    return (
+        cleaned,
+        exact_duplicate_count,
+        conflicting_duplicate_count,
+        missing_id_count,
+    )
+
+def exclude_conflicted_assignments(assignments):
+    """
+    Exclude assignments with missing identifiers and users with
+    multiple distinct assignments in the same experiment.
+
+    Returns:
+        cleaned_assignments,
+        conflicted_user_count,
+        missing_identifier_count
+    """
+    assignments = assignments.copy()
+
+    required_columns = [
+        "experiment_id",
+        "user_id",
+        "assignment_id",
+    ]
+
+    missing_identifier_mask = assignments[
+        required_columns
+    ].isna().any(axis=1)
+
+    missing_identifier_count = int(
+        missing_identifier_mask.sum()
+    )
+
+    identified = assignments.loc[
+        ~missing_identifier_mask
+    ].copy()
+
+    assignment_counts = (
+        identified.groupby(
+            ["experiment_id", "user_id"]
+        )["assignment_id"]
+        .nunique()
+    )
+
+    conflicted = assignment_counts[assignment_counts > 1]
+    conflicted_users = set(conflicted.index.tolist())
+
+    user_keys = list(
+        zip(
+            identified["experiment_id"],
+            identified["user_id"],
+        )
+    )
+
+    keep_mask = pd.Series(
+        [key not in conflicted_users for key in user_keys],
+        index=identified.index,
+    )
+
+    cleaned = identified.loc[keep_mask].copy()
+
+    return (
+        cleaned,
+        len(conflicted_users),
+        missing_identifier_count,
+    )
+
+def exclude_device_mismatches(events, assignments):
+    """
+    Exclude events with mismatched or missing device information.
+
+    Preserve unmatched events so the analyzer can count them separately.
+
+    Returns:
+        cleaned_events,
+        mismatch_count,
+        missing_device_count
+    """
+    assignment_devices = assignments[
+        ["experiment_id", "user_id", "device_category"]
+    ].copy()
+
+    if assignment_devices.duplicated(
+        ["experiment_id", "user_id"]
+    ).any():
+        raise ValueError(
+            "Assignments must contain one device per experiment/user."
+        )
+
+    checked = events.merge(
+        assignment_devices,
+        on=["experiment_id", "user_id"],
+        how="left",
+        validate="many_to_one",
+        indicator=True,
+        suffixes=("", "_assigned"),
+    )
+
+    matched = checked["_merge"].eq("both")
+
+    event_device_missing = checked["device_category"].isna()
+    assigned_device_missing = checked["device_category_assigned"].isna()
+
+    missing_device = (
+        matched
+        & (event_device_missing | assigned_device_missing)
+    )
+
+    mismatch = (
+        matched
+        & ~event_device_missing
+        & ~assigned_device_missing
+        & (
+            checked["device_category"]
+            != checked["device_category_assigned"]
+        )
+    )
+
+    mismatch_count = int(mismatch.sum())
+    missing_device_count = int(missing_device.sum())
+
+    cleaned = checked.loc[
+        ~mismatch & ~missing_device
+    ].drop(
+        columns=["device_category_assigned", "_merge"]
+    ).copy()
+
+    return cleaned, mismatch_count, missing_device_count
+
 def reconcile_denominator(eligible_assignments, denominator_users):
     """Reconcile eligible assigned users against denominator-qualified users."""
     assigned_users = set(eligible_assignments["user_id"].dropna())
@@ -275,10 +440,39 @@ def main():
         end = pd.to_datetime(exp.end_date, utc=True)
         alpha = float(exp.alpha)
 
-        exp_assignments = assignments.loc[
+        raw_exp_assignments = assignments.loc[
             assignments["experiment_id"].eq(exp_id)
         ].copy()
-        exp_events = events.loc[events["experiment_id"].eq(exp_id)].copy()
+
+        raw_exp_events = events.loc[
+            events["experiment_id"].eq(exp_id)
+        ].copy()
+
+        (
+            exp_assignments,
+            exact_assignment_duplicates,
+            conflicting_assignment_ids,
+            missing_assignment_ids,
+        ) = deduplicate_by_id(
+            raw_exp_assignments,
+            "assignment_id",
+        )
+
+        (
+            exp_events,
+            exact_event_duplicates,
+            conflicting_event_ids,
+            missing_event_ids,
+        ) = deduplicate_by_id(
+            raw_exp_events,
+            "event_id",
+        )
+
+        (
+            exp_assignments,
+            conflicted_users,
+            missing_assignment_identifiers,
+        ) = exclude_conflicted_assignments(exp_assignments)
 
         assignment_in_window = in_window(
             exp_assignments["assignment_timestamp"], start, end
@@ -288,9 +482,9 @@ def main():
             & assignment_in_window
         ].copy()
 
-        assignment_lookup = exp_assignments.drop_duplicates(
+        assignment_lookup = exp_assignments.set_index(
             ["experiment_id", "user_id"]
-        ).set_index(["experiment_id", "user_id"])
+        )
 
         matched = exp_events.apply(
             lambda r: (r["experiment_id"], r["user_id"]) in assignment_lookup.index,
@@ -302,7 +496,7 @@ def main():
         event_variant_mismatch = 0
         event_before_assignment = 0
         event_outside_window = 0
-        event_device_mismatch = 0
+
 
         for row in comparable_events.itertuples(index=False):
             key = (row.experiment_id, row.user_id)
@@ -320,11 +514,22 @@ def main():
             if not (start <= row.event_timestamp < end + pd.Timedelta(days=1)):
                 event_outside_window += 1
 
-            if str(row.device_category) != str(assignment["device_category"]):
-                event_device_mismatch += 1
+        _, event_device_mismatch, missing_event_devices = (
+            exclude_device_mismatches(
+                comparable_events,
+                exp_assignments,
+            )
+        )
+
         variant_counts = (
-            exp_assignments.drop_duplicates(["experiment_id", "user_id"])
-            ["variant"]
+            exp_assignments.loc[
+                exp_assignments["eligible_parsed"].eq(True)
+                & in_window(
+                    exp_assignments["assignment_timestamp"],
+                    start,
+                    end,
+                )
+            ]["variant"]
             .value_counts()
         )
 
@@ -353,6 +558,11 @@ def main():
             in_window(valid_events["event_timestamp"], start, end)
         ].copy()
 
+        valid_events, _, _ = exclude_device_mismatches(
+            valid_events,
+            exp_assignments,
+        )
+
         valid_events = valid_events.merge(
             exp_assignments[
                 ["experiment_id", "user_id", "assignment_timestamp"]
@@ -372,22 +582,37 @@ def main():
         )
         integrity_rows.append({
             "experiment_id": exp_id,
-            "assignment_rows": len(exp_assignments),
+            "assignment_rows": len(raw_exp_assignments),
+            "clean_assignment_rows": len(exp_assignments),
             "eligible_assignments_in_window": len(eligible_assignments),
             "eligible_assigned_users_distinct": reconciliation["eligible_assigned_users"],
             "denominator_users_distinct": reconciliation["denominator_users"],
             "eligible_users_without_denominator_event": reconciliation["eligible_users_without_denominator_event"],
             "denominator_reconciles": reconciliation["denominator_reconciles"],
-            "event_rows": len(exp_events),
+            "event_rows": len(raw_exp_events),
+            "clean_event_rows": len(exp_events),
             "unmatched_events": unmatched_events,
             "variant_mismatches": event_variant_mismatch,
             "events_before_assignment": event_before_assignment,
             "events_outside_window": event_outside_window,
             "device_mismatches": event_device_mismatch,
-            "duplicate_assignment_ids": int(
-                exp_assignments["assignment_id"].duplicated().sum()
+            "duplicate_assignment_ids": (
+                exact_assignment_duplicates
+                + conflicting_assignment_ids
             ),
-            "duplicate_event_ids": int(exp_events["event_id"].duplicated().sum()),
+            "duplicate_event_ids": (
+                exact_event_duplicates
+                + conflicting_event_ids
+            ),
+            "exact_duplicate_assignment_rows": exact_assignment_duplicates,
+            "conflicting_assignment_ids": conflicting_assignment_ids,
+            "missing_assignment_ids": missing_assignment_ids,
+            "missing_assignment_identifiers": missing_assignment_identifiers,
+            "conflicted_assignment_users": conflicted_users,
+            "exact_duplicate_event_rows": exact_event_duplicates,
+            "conflicting_event_ids": conflicting_event_ids,
+            "missing_event_ids": missing_event_ids,
+            "missing_event_devices": missing_event_devices,
             "srm_control_assigned": srm["control_assigned"],
             "srm_treatment_assigned": srm["treatment_assigned"],
             "srm_expected_control_share": srm["expected_control_share"],
