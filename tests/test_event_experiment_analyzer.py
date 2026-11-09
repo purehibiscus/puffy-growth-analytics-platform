@@ -3,6 +3,9 @@ import pandas as pd
 import pytest
 
 from experimentation.analyze_event_experiments import (
+    ASSIGNMENTS_PATH,
+    EVENTS_PATH,
+    REGISTRY_PATH,
     as_bool,
     calculate_kpi,
     compare_variants,
@@ -12,6 +15,7 @@ from experimentation.analyze_event_experiments import (
     deduplicate_by_id,
     exclude_conflicted_assignments,
     exclude_device_mismatches,
+    main,
 )
 
 def make_event(
@@ -515,3 +519,95 @@ def test_exclude_conflicted_assignments_excludes_missing_identifiers():
     assert cleaned["assignment_id"].tolist() == ["a1"]
     assert conflicted_users == 0
     assert missing_identifier_count == 3
+
+def test_main_handles_injected_data_quality_anomalies(tmp_path):
+    assignments = pd.read_csv(ASSIGNMENTS_PATH)
+    events = pd.read_csv(EVENTS_PATH)
+
+    # Inject assignment anomalies.
+    exact_duplicate_assignment = assignments.iloc[[0]].copy()
+
+    conflicting_assignment = assignments.iloc[[1]].copy()
+    conflicting_assignment.loc[:, "user_id"] = "EXP-024_CONFLICTING_USER"
+
+    missing_assignment_id = assignments.iloc[[2]].copy()
+    missing_assignment_id.loc[:, "assignment_id"] = None
+
+    conflicted_user_assignment = assignments.iloc[[3]].copy()
+    conflicted_user_assignment.loc[:, "assignment_id"] = (
+        "EXP_ASSIGN_INJECTED_CONFLICT"
+    )
+
+    assignments = pd.concat(
+        [
+            assignments,
+            exact_duplicate_assignment,
+            conflicting_assignment,
+            missing_assignment_id,
+            conflicted_user_assignment,
+        ],
+        ignore_index=True,
+    )
+
+    # Inject event anomalies.
+    exact_duplicate_event = events.iloc[[0]].copy()
+
+    conflicting_event = events.iloc[[3]].copy()
+    conflicting_event.loc[:, "event_name"] = "injected_conflicting_event"
+
+    missing_event_id = events.iloc[[5]].copy()
+    missing_event_id.loc[:, "event_id"] = None
+
+    # Modify existing events so their IDs remain unique.
+    events.loc[9, "device_category"] = "injected_device"
+    events.loc[10, "device_category"] = None
+
+    events = pd.concat(
+        [
+            events,
+            exact_duplicate_event,
+            conflicting_event,
+            missing_event_id,
+        ],
+        ignore_index=True,
+    )
+    # Write modified inputs into pytest's temporary directory.
+    assignments_path = tmp_path / "assignments.csv"
+    events_path = tmp_path / "events.csv"
+    summary_path = tmp_path / "output" / "summary.csv"
+    integrity_path = tmp_path / "output" / "integrity.csv"
+
+    assignments.to_csv(assignments_path, index=False)
+    events.to_csv(events_path, index=False)
+
+    # Run the real analyzer against the temporary datasets.
+    main(
+        registry_path=REGISTRY_PATH,
+        assignments_path=assignments_path,
+        events_path=events_path,
+        summary_output=summary_path,
+        integrity_output=integrity_path,
+    )
+
+    # Read the generated integrity report.
+    integrity = pd.read_csv(integrity_path)
+    exp024 = integrity.loc[
+        integrity["experiment_id"] == "EXP-024"
+    ].iloc[0]
+
+    # Verify assignment safeguards.
+    assert exp024["exact_duplicate_assignment_rows"] == 1
+    assert exp024["conflicting_assignment_ids"] == 1
+    assert exp024["missing_assignment_ids"] == 1
+    assert exp024["conflicted_assignment_users"] == 1
+
+    # Verify event safeguards.
+    assert exp024["exact_duplicate_event_rows"] == 1
+    assert exp024["conflicting_event_ids"] == 1
+    assert exp024["missing_event_ids"] == 1
+    assert exp024["device_mismatches"] == 1
+    assert exp024["missing_event_devices"] == 1
+
+    # Verify that both output reports were generated.
+    assert summary_path.exists()
+    assert integrity_path.exists()

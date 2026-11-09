@@ -392,11 +392,16 @@ def check_sample_ratio_mismatch(
     }
 
 
-def main():
-    registry = pd.read_csv(REGISTRY_PATH)
-    assignments = pd.read_csv(ASSIGNMENTS_PATH)
-    events = pd.read_csv(EVENTS_PATH)
-
+def main(
+    registry_path=REGISTRY_PATH,
+    assignments_path=ASSIGNMENTS_PATH,
+    events_path=EVENTS_PATH,
+    summary_output=SUMMARY_OUTPUT,
+    integrity_output=INTEGRITY_OUTPUT,
+):
+    registry = pd.read_csv(registry_path)
+    assignments = pd.read_csv(assignments_path)
+    events = pd.read_csv(events_path)
     require_columns(
         registry,
         [
@@ -687,9 +692,11 @@ def main():
     summary = pd.DataFrame(summary_rows)
     integrity = pd.DataFrame(integrity_rows)
 
-    SUMMARY_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    summary.to_csv(SUMMARY_OUTPUT, index=False)
-    integrity.to_csv(INTEGRITY_OUTPUT, index=False)
+    summary_output.parent.mkdir(parents=True, exist_ok=True)
+    integrity_output.parent.mkdir(parents=True, exist_ok=True)
+
+    summary.to_csv(summary_output, index=False)
+    integrity.to_csv(integrity_output, index=False)
 
     print("\nEVENT-LEVEL EXPERIMENT ANALYSIS")
     print("=" * 72)
@@ -726,8 +733,8 @@ def main():
     print("- Target power is reported; achieved power is not calculated.")
     print("- Statistical significance does not establish causality or data quality.")
     print("- Synthetic results must not be presented as actual Puffy results.")
-    print(f"\nSaved summary: {SUMMARY_OUTPUT}")
-    print(f"Saved integrity report: {INTEGRITY_OUTPUT}")
+    print(f"\nSaved summary: {summary_output}")
+    print(f"Saved integrity report: {integrity_output}")
 
 
 if __name__ == "__main__":
