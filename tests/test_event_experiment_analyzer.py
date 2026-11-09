@@ -243,8 +243,8 @@ def test_reconcile_denominator_counts_qualified_and_missing_users():
     assert result["eligible_assigned_users"] == 3
     assert result["denominator_users"] == 2
     assert result["eligible_users_without_denominator_event"] == 1
-    assert result["denominator_reconciles"] is True
-
+    assert result["denominator_users_without_eligible_assignment"] == 1
+    assert result["denominator_reconciles"] is False
 
 def test_reconcile_denominator_handles_no_qualifying_users():
     assignments = pd.DataFrame({

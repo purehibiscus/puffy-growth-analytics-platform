@@ -205,12 +205,13 @@ def exclude_device_mismatches(events, assignments):
     return cleaned, mismatch_count, missing_device_count
 
 def reconcile_denominator(eligible_assignments, denominator_users):
-    """Reconcile eligible assigned users against denominator-qualified users."""
+    """Reconcile denominator users against the eligible assigned population."""
     assigned_users = set(eligible_assignments["user_id"].dropna())
     denominator_users = set(denominator_users)
 
     qualified_users = assigned_users.intersection(denominator_users)
     missing_denominator_users = assigned_users.difference(qualified_users)
+    unassigned_denominator_users = denominator_users.difference(assigned_users)
 
     return {
         "eligible_assigned_users": len(assigned_users),
@@ -218,8 +219,12 @@ def reconcile_denominator(eligible_assignments, denominator_users):
         "eligible_users_without_denominator_event": len(
             missing_denominator_users
         ),
+        "denominator_users_without_eligible_assignment": len(
+            unassigned_denominator_users
+        ),
         "denominator_reconciles": (
-            len(assigned_users)
+            len(unassigned_denominator_users) == 0
+            and len(assigned_users)
             == len(qualified_users) + len(missing_denominator_users)
         ),
     }
@@ -593,6 +598,7 @@ def main(
             "eligible_assigned_users_distinct": reconciliation["eligible_assigned_users"],
             "denominator_users_distinct": reconciliation["denominator_users"],
             "eligible_users_without_denominator_event": reconciliation["eligible_users_without_denominator_event"],
+            "denominator_users_without_eligible_assignment": reconciliation["denominator_users_without_eligible_assignment"],
             "denominator_reconciles": reconciliation["denominator_reconciles"],
             "event_rows": len(raw_exp_events),
             "clean_event_rows": len(exp_events),
@@ -632,9 +638,18 @@ def main(
             variant_assignments = eligible_assignments.loc[
                 eligible_assignments["variant"].eq(variant)
             ]
-            variant_users = set(variant_assignments["user_id"])
+            variant_users = set(variant_assignments["user_id"].dropna())
 
-            denom = len(denominator_users.intersection(variant_users))
+            variant_denominator_users = denominator_users.intersection(
+                variant_users
+            )
+
+            variant_reconciliation = reconcile_denominator(
+                variant_assignments,
+                variant_denominator_users,
+            )
+
+            denom = variant_reconciliation["denominator_users"]
             numer = len(numerator_users.intersection(variant_users))
             rate = numer / denom if denom else np.nan
 
@@ -645,15 +660,13 @@ def main(
                 "primary_kpi": exp.primary_kpi,
                 "variant": variant,
                 "denominator_event": denominator_event,
-                "numerator_event": numerator_event,
-                "eligible_assigned_users": len(variant_users),
-                "eligible_users_without_denominator_event": len(
-                    variant_users.difference(denominator_users)
-                ),
                 "denominator_reconciles": (
-                    len(variant_users)
-                    == len(variant_users.intersection(denominator_users))
-                    + len(variant_users.difference(denominator_users))
+                    variant_reconciliation["denominator_reconciles"]
+                ),
+                "denominator_users_without_eligible_assignment": (
+                    variant_reconciliation[
+                        "denominator_users_without_eligible_assignment"
+                    ]
                 ),
                 "denominator_users": denom,
                 "numerator_users": numer,
@@ -664,7 +677,6 @@ def main(
                     "Synthetic event-level estimate; not actual Puffy performance."
                 ),
             })
-
         control = next(
             r for r in summary_rows
             if r["experiment_id"] == exp_id and r["variant"] == "control"
