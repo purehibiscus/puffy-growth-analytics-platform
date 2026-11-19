@@ -308,7 +308,36 @@ def calculate_kpi(experiment_id, eligible_assignments, events):
 
 
 def compare_variants(control_n, control_x, treatment_n, treatment_x, alpha):
-    """Two-sided pooled two-proportion z-test and Wald CI for rate difference."""
+    """Pooled two-proportion z-test with a Newcombe-Wilson CI for rate difference."""
+    counts = {
+        "control_n": control_n,
+        "control_x": control_x,
+        "treatment_n": treatment_n,
+        "treatment_x": treatment_x,
+    }
+
+    for name, value in counts.items():
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, np.integer))
+            or value < 0
+        ):
+            raise ValueError(f"{name} must be a non-negative integer.")
+
+    if control_x > control_n:
+        raise ValueError("control_x cannot exceed control_n.")
+
+    if treatment_x > treatment_n:
+        raise ValueError("treatment_x cannot exceed treatment_n.")
+
+    if (
+        isinstance(alpha, bool)
+        or not isinstance(alpha, (int, float, np.integer, np.floating))
+        or not math.isfinite(alpha)
+        or not 0 < alpha < 1
+    ):
+        raise ValueError("alpha must be a finite number between 0 and 1.")
+
     if min(control_n, treatment_n) <= 0:
         return {
             "absolute_lift_pp": np.nan,
@@ -323,6 +352,7 @@ def compare_variants(control_n, control_x, treatment_n, treatment_x, alpha):
     p_treatment = treatment_x / treatment_n
     difference = p_treatment - p_control
 
+    # Preserve the existing pooled two-proportion z-test.
     pooled = (control_x + treatment_x) / (control_n + treatment_n)
     se_test = math.sqrt(
         pooled * (1 - pooled) * (1 / control_n + 1 / treatment_n)
@@ -334,11 +364,43 @@ def compare_variants(control_n, control_x, treatment_n, treatment_x, alpha):
     else:
         p_value = 1.0 if difference == 0 else 0.0
 
-    se_ci = math.sqrt(
-        p_control * (1 - p_control) / control_n
-        + p_treatment * (1 - p_treatment) / treatment_n
-    )
+    # Newcombe method 10: combine independent Wilson score intervals.
     z_critical = norm.ppf(1 - alpha / 2)
+
+    def wilson_interval(successes, total):
+        proportion = successes / total
+        z_squared = z_critical**2
+        denominator = 1 + z_squared / total
+
+        center = (
+            proportion + z_squared / (2 * total)
+        ) / denominator
+
+        margin = (
+            z_critical
+            * math.sqrt(
+                proportion * (1 - proportion) / total
+                + z_squared / (4 * total**2)
+            )
+            / denominator
+        )
+
+        return center - margin, center + margin
+
+    control_low, control_high = wilson_interval(control_x, control_n)
+    treatment_low, treatment_high = wilson_interval(
+        treatment_x, treatment_n
+    )
+
+    ci_low = difference - math.sqrt(
+        (p_treatment - treatment_low) ** 2
+        + (control_high - p_control) ** 2
+    )
+
+    ci_high = difference + math.sqrt(
+        (treatment_high - p_treatment) ** 2
+        + (p_control - control_low) ** 2
+    )
 
     relative_lift = (
         (p_treatment / p_control - 1) * 100
@@ -349,13 +411,11 @@ def compare_variants(control_n, control_x, treatment_n, treatment_x, alpha):
     return {
         "absolute_lift_pp": difference * 100,
         "relative_lift_pct": relative_lift,
-        "confidence_interval_low_pp": (difference - z_critical * se_ci) * 100,
-        "confidence_interval_high_pp": (difference + z_critical * se_ci) * 100,
+        "confidence_interval_low_pp": ci_low * 100,
+        "confidence_interval_high_pp": ci_high * 100,
         "p_value": p_value,
         "statistically_significant": bool(p_value < alpha),
     }
-
-
 
 def check_sample_ratio_mismatch(
     control_n,
@@ -740,7 +800,7 @@ def main(
     print("- Rates use the registered experiment windows and eligible assignments.")
     print("- EXP-024 requires a later add_to_cart in the same session.")
     print("- EXP-025 requires a later purchase in the same session on mobile.")
-    print("- The confidence interval is a normal-approximation interval.")
+    print("- The confidence interval is a Newcombe-Wilson score interval for the difference in independent proportions.")
     print("- The p-value is a two-sided pooled two-proportion z-test.")
     print("- Target power is reported; achieved power is not calculated.")
     print("- Statistical significance does not establish causality or data quality.")

@@ -1,4 +1,5 @@
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -180,6 +181,57 @@ def test_compare_variants_detects_clear_difference():
     assert result["statistically_significant"] is True
     assert result["confidence_interval_low_pp"] < 10.0
     assert result["confidence_interval_high_pp"] > 10.0
+
+@pytest.mark.parametrize(
+    "control_n, control_x, treatment_n, treatment_x, alpha",
+    [
+        (-1, 0, 100, 20, 0.05),
+        (100, -1, 100, 20, 0.05),
+        (100, 101, 100, 20, 0.05),
+        (100, 20, -1, 0, 0.05),
+        (100, 20, 100, -1, 0.05),
+        (100, 20, 100, 101, 0.05),
+        (100, 20, 100, 30, 0),
+        (100, 20, 100, 30, 1),
+    ],
+)
+def test_compare_variants_rejects_invalid_inputs(
+    control_n, control_x, treatment_n, treatment_x, alpha
+):
+    with pytest.raises(ValueError):
+        compare_variants(
+            control_n,
+            control_x,
+            treatment_n,
+            treatment_x,
+            alpha,
+        )
+
+
+@pytest.mark.parametrize(
+    "control_x, treatment_x",
+    [
+        (0, 0),
+        (100, 100),
+    ],
+)
+def test_compare_variants_handles_extreme_conversion_rates(
+    control_x, treatment_x
+):
+    result = compare_variants(
+        control_n=100,
+        control_x=control_x,
+        treatment_n=100,
+        treatment_x=treatment_x,
+        alpha=0.05,
+    )
+
+    assert np.isfinite(result["confidence_interval_low_pp"])
+    assert np.isfinite(result["confidence_interval_high_pp"])
+    assert result["confidence_interval_low_pp"] <= result["absolute_lift_pp"]
+    assert result["confidence_interval_high_pp"] >= result["absolute_lift_pp"]
+    assert result["confidence_interval_low_pp"] >= -100
+    assert result["confidence_interval_high_pp"] <= 100
 
 
 def test_compare_variants_handles_empty_variant():
