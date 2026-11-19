@@ -1,0 +1,5 @@
+scenario,control_rate_pct,treatment_rate_pct,users_per_variant,simulations,true_difference_pp,empirical_coverage_pct,target_coverage_pct,monte_carlo_se_pp,minimum_acceptable_coverage_pct,assessment
+Low conversion,2.0,2.0,100,10000,0.0,98.78,95.0,0.10977777552856492,94.34616515846889,PASS
+Moderate conversion,20.0,20.0,500,10000,0.0,94.95,95.0,0.2189743135621162,94.34616515846889,PASS
+High conversion,70.0,70.0,1000,10000,0.0,94.81,95.0,0.22182513383293598,94.34616515846889,PASS
+Unequal conversion,20.0,25.0,1000,10000,4.999999999999999,94.78999999999999,95.0,0.22222868851703204,94.34616515846889,PASS
